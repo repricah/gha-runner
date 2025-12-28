@@ -105,6 +105,11 @@ services:
   runner-1:
     <<: *runner-common
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "Runner.Listener"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     depends_on:
       seed-externals:
         condition: service_completed_successfully
