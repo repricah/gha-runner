@@ -15,7 +15,7 @@ body:
       placeholder: I'm always frustrated when...
     validations:
       required: true
-      
+
   - type: textarea
     id: solution
     attributes:
@@ -24,14 +24,14 @@ body:
       placeholder: I would like to have...
     validations:
       required: true
-      
+
   - type: textarea
     id: alternatives
     attributes:
       label: Alternatives Considered
       description: Describe any alternative solutions or features you've considered.
       placeholder: I also thought about...
-      
+
   - type: textarea
     id: use-case
     attributes:
@@ -40,7 +40,7 @@ body:
       placeholder: This would help when...
     validations:
       required: true
-      
+
   - type: textarea
     id: additional
     attributes:
