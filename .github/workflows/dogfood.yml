@@ -1,0 +1,56 @@
+name: Dogfood Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-runner:
+    runs-on: [self-hosted, dogfood]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Test Docker access
+      run: |
+        echo "Testing Docker access..."
+        docker --version
+        docker info
+        
+    - name: Test basic commands
+      run: |
+        echo "Runner info:"
+        echo "Hostname: $(hostname)"
+        echo "User: $(whoami)"
+        echo "Working directory: $(pwd)"
+        echo "Environment:"
+        env | grep -E "(RUNNER_|GITHUB_)" | sort
+        
+    - name: Test Docker build
+      run: |
+        echo "FROM alpine:latest" > Dockerfile
+        echo "RUN echo 'Hello from dogfood runner!'" >> Dockerfile
+        docker build -t dogfood-test .
+        docker run --rm dogfood-test echo "Docker build successful!"
+        
+    - name: Test Node.js
+      run: |
+        node --version
+        npm --version
+        
+    - name: Success
+      run: echo "✅ Dogfood test completed successfully!"
+
+  parallel-test:
+    runs-on: [self-hosted, dogfood]
+    
+    steps:
+    - name: Parallel job test
+      run: |
+        echo "This is running in parallel on another runner"
+        sleep 10
+        echo "Parallel job completed"
