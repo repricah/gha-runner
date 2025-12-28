@@ -1,5 +1,9 @@
 # GitHub Actions Self-Hosted Runner
 
+[![CI](https://github.com/repricah/gha-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/repricah/gha-runner/actions/workflows/ci.yml)
+[![Dogfood Test](https://github.com/repricah/gha-runner/actions/workflows/dogfood.yml/badge.svg)](https://github.com/repricah/gha-runner/actions/workflows/dogfood.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A Docker Compose setup for running GitHub Actions self-hosted runners that use the host Docker daemon. This setup allows you to run CI/CD workflows with Docker builds while maintaining isolation and security.
 
 ## Features
