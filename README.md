@@ -96,6 +96,16 @@ The default setup includes 8 runners. To adjust:
 - Check that `seed-externals` service completed successfully
 - Verify `/home/runner/externals` mount exists
 
+## Contributing
+
+Contributions are welcome! Please see our [Contributing Guidelines](.github/CONTRIBUTING.md) for details on how to get started.
+
+Please note that this project is released with a [Code of Conduct](.github/CODE_OF_CONDUCT.md). By participating in this project you agree to abide by its terms.
+
+## Security
+
+For security concerns, please see our [Security Policy](.github/SECURITY.md).
+
 ## License
 
 MIT License - see LICENSE file for details.
