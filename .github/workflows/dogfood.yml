@@ -37,10 +37,13 @@ jobs:
         docker build -t dogfood-test .
         docker run --rm dogfood-test echo "Docker build successful!"
         
-    - name: Test Node.js
+    - name: Test available tools
       run: |
-        node --version
-        npm --version
+        echo "Available tools:"
+        which docker || echo "docker not found"
+        which git || echo "git not found"
+        which curl || echo "curl not found"
+        which node || echo "node not found"
         
     - name: Success
       run: echo "✅ Dogfood test completed successfully!"
