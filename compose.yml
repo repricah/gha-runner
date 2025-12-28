@@ -8,16 +8,72 @@ x-runner-common: &runner-common
   environment:
     RUNNER_LABELS: ${RUNNER_LABELS:-self-hosted,dind,buildkit}
     REPO_URL: ${REPO_URL:?set REPO_URL to https://github.com/owner/repo}
+    RUNNER_TOKEN: ${RUNNER_TOKEN:?set RUNNER_TOKEN from the repo registration token}
     DOCKER_HOST: unix:///var/run/docker.sock
     DOCKER_TLS_VERIFY: ""
     DOCKER_CERT_PATH: ""
-    DOCKER_CONFIG: /root/.docker
+    DOCKER_CONFIG: /home/runner/.docker
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - /home/runner/externals:/home/runner/externals:ro
     - /root/.docker:/root/.docker:ro
     - runner-state:/runner/state
   entrypoint: /bin/bash
+
+x-runner-script: &runner-script
+  - -c
+  - |
+    set -euo pipefail
+    STATE_DIR="/runner/state/$${RUNNER_NAME}"
+    mkdir -p "$$STATE_DIR"
+    
+    # Restore runner state if it exists
+    for f in .runner .runner_migrated .credentials .credentials_migrated .credentials_rsaparams; do
+      if [ -f "$$STATE_DIR/$$f" ]; then cp "$$STATE_DIR/$$f" "/home/runner/$$f"; fi
+    done
+    chown runner:runner /home/runner/.runner* /home/runner/.credentials* 2>/dev/null || true
+    
+    # Setup Docker authentication
+    mkdir -p /home/runner/.docker
+    if [ -f /root/.docker/config.json ]; then
+      cp /root/.docker/config.json /home/runner/.docker/config.json
+    else
+      echo '{}' > /home/runner/.docker/config.json
+    fi
+    chown -R runner:runner /home/runner/.docker
+    chown -R runner:runner "$${RUNNER_WORKDIR%/*}" || true
+    
+    # Setup Docker group permissions
+    DOCKER_GID=$$(stat -c '%g' /var/run/docker.sock)
+    groupadd -g "$$DOCKER_GID" dockerhost 2>/dev/null || true
+    usermod -aG "$$DOCKER_GID" runner 2>/dev/null || true
+    chmod 666 /var/run/docker.sock 2>/dev/null || true
+    
+    # Setup runner Docker config
+    mkdir -p "$${RUNNER_WORKDIR%/*}/.docker" /home/runner/.docker
+    if [ ! -f /home/runner/.docker/config.json ]; then echo '{}' > /home/runner/.docker/config.json; fi
+    echo '{}' > "$${RUNNER_WORKDIR%/*}/.docker/config.json"
+    chown -R runner:runner "$${RUNNER_WORKDIR%/*}/.docker" /home/runner/.docker || true
+    
+    # Register runner if not already registered
+    if [ ! -f .runner ]; then
+      su runner -c "./config.sh \
+        --url \"$${REPO_URL}\" \
+        --token \"$${RUNNER_TOKEN}\" \
+        --name \"$${RUNNER_NAME}\" \
+        --labels \"$${RUNNER_LABELS}\" \
+        --unattended \
+        --replace \
+        --work \"$${RUNNER_WORKDIR}\""
+    fi
+    
+    # Save runner state
+    for f in .runner .runner_migrated .credentials .credentials_migrated .credentials_rsaparams; do
+      if [ -f "/home/runner/$$f" ]; then cp "/home/runner/$$f" "$$STATE_DIR/$$f"; fi
+    done
+    
+    # Start the runner
+    exec su runner -c "./run.sh"
 
 services:
   # Seed Node runtimes into the host path that job containers mount
@@ -54,74 +110,14 @@ services:
         condition: service_completed_successfully
     environment:
       RUNNER_NAME: ${RUNNER_NAME_PREFIX:-gha-runner}-1
-      RUNNER_LABELS: ${RUNNER_LABELS:-self-hosted,dind,buildkit}
       RUNNER_WORKDIR: /runner1/_work
-      REPO_URL: ${REPO_URL:?set REPO_URL to https://github.com/owner/repo}
-      RUNNER_TOKEN: ${RUNNER_TOKEN:?set RUNNER_TOKEN from the repo registration token}
-      DOCKER_CONFIG: /home/runner/.docker
-      DOCKER_HOST: unix:///var/run/docker.sock
-      DOCKER_TLS_VERIFY: ""
-      DOCKER_CERT_PATH: ""
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/runner/externals:/home/runner/externals:ro
       - /root/.docker:/root/.docker:ro
       - /runner1:/runner1
       - runner-state:/runner/state
-    command:
-      - -c
-      - |
-        set -euo pipefail
-        STATE_DIR="/runner/state/$${RUNNER_NAME}"
-        mkdir -p "$$STATE_DIR"
-        
-        # Restore runner state if it exists
-        for f in .runner .runner_migrated .credentials .credentials_migrated .credentials_rsaparams; do
-          if [ -f "$$STATE_DIR/$$f" ]; then cp "$$STATE_DIR/$$f" "/home/runner/$$f"; fi
-        done
-        chown runner:runner /home/runner/.runner* /home/runner/.credentials* 2>/dev/null || true
-        
-        # Setup Docker authentication
-        mkdir -p /home/runner/.docker
-        if [ -f /root/.docker/config.json ]; then
-          cp /root/.docker/config.json /home/runner/.docker/config.json
-        else
-          echo '{}' > /home/runner/.docker/config.json
-        fi
-        chown -R runner:runner /home/runner/.docker
-        chown -R runner:runner /runner1 || true
-        
-        # Setup Docker group permissions
-        DOCKER_GID=$$(stat -c '%g' /var/run/docker.sock)
-        groupadd -g "$$DOCKER_GID" dockerhost 2>/dev/null || true
-        usermod -aG "$$DOCKER_GID" runner 2>/dev/null || true
-        chmod 666 /var/run/docker.sock 2>/dev/null || true
-        
-        # Setup runner Docker config
-        mkdir -p /runner1/.docker /home/runner/.docker
-        if [ ! -f /home/runner/.docker/config.json ]; then echo '{}' > /home/runner/.docker/config.json; fi
-        echo '{}' > /runner1/.docker/config.json
-        chown -R runner:runner /runner1/.docker /home/runner/.docker || true
-        
-        # Register runner if not already registered
-        if [ ! -f .runner ]; then
-          su runner -c "./config.sh \
-            --url \"$${REPO_URL}\" \
-            --token \"$${RUNNER_TOKEN}\" \
-            --name \"$${RUNNER_NAME}\" \
-            --labels \"$${RUNNER_LABELS}\" \
-            --unattended \
-            --replace \
-            --work \"$${RUNNER_WORKDIR}\""
-        fi
-        
-        # Save runner state
-        for f in .runner .runner_migrated .credentials .credentials_migrated .credentials_rsaparams; do
-          if [ -f "/home/runner/$$f" ]; then cp "/home/runner/$$f" "$$STATE_DIR/$$f"; fi
-        done
-        
-        # Start the runner
-        exec su runner -c "./run.sh"
+    command: *runner-script
 
   runner-2:
     <<: *runner-common
@@ -138,49 +134,126 @@ services:
       - /root/.docker:/root/.docker:ro
       - /runner2:/runner2
       - runner-state:/runner/state
-    command:
-      - -c
-      - |
-        set -euo pipefail
-        STATE_DIR="/runner/state/$${RUNNER_NAME}"
-        mkdir -p "$$STATE_DIR"
-        for f in .runner .runner_migrated .credentials .credentials_migrated .credentials_rsaparams; do
-          if [ -f "$$STATE_DIR/$$f" ]; then cp "$$STATE_DIR/$$f" "/home/runner/$$f"; fi
-        done
-        chown runner:runner /home/runner/.runner* /home/runner/.credentials* 2>/dev/null || true
-        mkdir -p /home/runner/.docker
-        if [ -f /root/.docker/config.json ]; then
-          cp /root/.docker/config.json /home/runner/.docker/config.json
-        else
-          echo '{}' > /home/runner/.docker/config.json
-        fi
-        chown -R runner:runner /home/runner/.docker
-        mkdir -p /runner2 && chown -R runner:runner /runner2 || true
-        DOCKER_GID=$$(stat -c '%g' /var/run/docker.sock)
-        groupadd -g "$$DOCKER_GID" dockerhost 2>/dev/null || true
-        usermod -aG "$$DOCKER_GID" runner 2>/dev/null || true
-        chmod 666 /var/run/docker.sock 2>/dev/null || true
-        mkdir -p /runner2/.docker /home/runner/.docker
-        if [ ! -f /home/runner/.docker/config.json ]; then echo '{}' > /home/runner/.docker/config.json; fi
-        echo '{}' > /runner2/.docker/config.json
-        chown -R runner:runner /runner2/.docker /home/runner/.docker || true
-        if [ ! -f .runner ]; then
-          su runner -c "./config.sh \
-            --url \"$${REPO_URL}\" \
-            --token \"$${RUNNER_TOKEN}\" \
-            --name \"$${RUNNER_NAME}\" \
-            --labels \"$${RUNNER_LABELS}\" \
-            --unattended \
-            --replace \
-            --work \"$${RUNNER_WORKDIR}\""
-        fi
-        for f in .runner .runner_migrated .credentials .credentials_migrated .credentials_rsaparams; do
-          if [ -f "/home/runner/$$f" ]; then cp "/home/runner/$$f" "$$STATE_DIR/$$f"; fi
-        done
-        exec su runner -c "./run.sh"
+    command: *runner-script
 
-  # Add more runners as needed (runner-3, runner-4, etc.)
-  # Copy the runner-2 service and update RUNNER_NAME and volumes
+  runner-3:
+    <<: *runner-common
+    restart: unless-stopped
+    depends_on:
+      seed-externals:
+        condition: service_completed_successfully
+    environment:
+      RUNNER_NAME: ${RUNNER_NAME_PREFIX:-gha-runner}-3
+      RUNNER_WORKDIR: /runner3/_work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/runner/externals:/home/runner/externals:ro
+      - /root/.docker:/root/.docker:ro
+      - /runner3:/runner3
+      - runner-state:/runner/state
+    command: *runner-script
+
+  runner-4:
+    <<: *runner-common
+    restart: unless-stopped
+    depends_on:
+      seed-externals:
+        condition: service_completed_successfully
+    environment:
+      RUNNER_NAME: ${RUNNER_NAME_PREFIX:-gha-runner}-4
+      RUNNER_WORKDIR: /runner4/_work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/runner/externals:/home/runner/externals:ro
+      - /root/.docker:/root/.docker:ro
+      - /runner4:/runner4
+      - runner-state:/runner/state
+    command: *runner-script
+
+  runner-5:
+    <<: *runner-common
+    restart: unless-stopped
+    depends_on:
+      seed-externals:
+        condition: service_completed_successfully
+    environment:
+      RUNNER_NAME: ${RUNNER_NAME_PREFIX:-gha-runner}-5
+      RUNNER_WORKDIR: /runner5/_work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/runner/externals:/home/runner/externals:ro
+      - /root/.docker:/root/.docker:ro
+      - /runner5:/runner5
+      - runner-state:/runner/state
+    command: *runner-script
+
+  runner-6:
+    <<: *runner-common
+    restart: unless-stopped
+    depends_on:
+      seed-externals:
+        condition: service_completed_successfully
+    environment:
+      RUNNER_NAME: ${RUNNER_NAME_PREFIX:-gha-runner}-6
+      RUNNER_WORKDIR: /runner6/_work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/runner/externals:/home/runner/externals:ro
+      - /root/.docker:/root/.docker:ro
+      - /runner6:/runner6
+      - runner-state:/runner/state
+    command: *runner-script
+
+  runner-7:
+    <<: *runner-common
+    restart: unless-stopped
+    depends_on:
+      seed-externals:
+        condition: service_completed_successfully
+    environment:
+      RUNNER_NAME: ${RUNNER_NAME_PREFIX:-gha-runner}-7
+      RUNNER_WORKDIR: /runner7/_work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/runner/externals:/home/runner/externals:ro
+      - /root/.docker:/root/.docker:ro
+      - /runner7:/runner7
+      - runner-state:/runner/state
+    command: *runner-script
+
+  runner-8:
+    <<: *runner-common
+    restart: unless-stopped
+    depends_on:
+      seed-externals:
+        condition: service_completed_successfully
+    environment:
+      RUNNER_NAME: ${RUNNER_NAME_PREFIX:-gha-runner}-8
+      RUNNER_WORKDIR: /runner8/_work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/runner/externals:/home/runner/externals:ro
+      - /root/.docker:/root/.docker:ro
+      - /runner8:/runner8
+      - runner-state:/runner/state
+    command: *runner-script
+
+  runner-9:
+    <<: *runner-common
+    restart: unless-stopped
+    depends_on:
+      seed-externals:
+        condition: service_completed_successfully
+    environment:
+      RUNNER_NAME: ${RUNNER_NAME_PREFIX:-gha-runner}-9
+      RUNNER_WORKDIR: /runner9/_work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/runner/externals:/home/runner/externals:ro
+      - /root/.docker:/root/.docker:ro
+      - /runner9:/runner9
+      - runner-state:/runner/state
+    command: *runner-script
 
 volumes:
   runner-state:
